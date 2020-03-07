@@ -1,0 +1,8 @@
+#Install client 
+yum install openldap openldap-clients nss-pam-ldapd
+
+#set up auth
+authconfig --enableldap --enableldapauth --ldapserver=gunstar --ldapbasedn="dc=ninjanet,dc=com"  --update
+
+#Test that it worked 
+getent passwd tecmint

@@ -1,0 +1,160 @@
+Setup LDAP server 
+https://www.tecmint.com/install-openldap-server-for-centralized-authentication/
+
+Install packages 
+[root@gunstar ~]# yum install openldap openldap-servers openldap-clients
+
+#Enable service
+ 1003  sudo systemctl start slapd
+ 1004  sudo systemctl enable slapd
+ 1005  sudo systemctl status  slapd
+
+#Add it to the firewall
+firewall-cmd --add-service=ldap --permanent
+
+#Add ldap password 
+[root@gunstar ~]# slappasswd
+New password: 
+Re-enter new password:
+
+#Create a directory for your ldifs 
+[root@gunstar ~]# mkdir -p /root/sam/ldif 
+
+#Make ldif
+[root@gunstar ldif]# cat /root/sam/ldif/ldaprootpasswd.ldif 
+dn: olcDatabase={0}config,cn=config
+changetype: modify
+add: olcRootPW
+olcRootPW: {SSHA}PASSWORD_CREATED
+
+#Add the ldap entry
+ldapadd -Y EXTERNAL -H ldapi:/// -f ldaprootpasswd.ldif
+
+#Configure ldap database
+$ sudo cp /usr/share/openldap-servers/DB_CONFIG.example /var/lib/ldap/DB_CONFIG
+$ sudo chown -R ldap:ldap /var/lib/ldap/DB_CONFIG
+$ sudo systemctl restart slapd
+
+#Import LDAP schemas
+ sudo ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/cosine.ldif 
+$ sudo ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/nis.ldif
+$ sudo ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/inetorgperson.ldif
+
+#Add your domain 
+vim ldapdomain.ldif 
+
+dn: olcDatabase={1}monitor,cn=config
+changetype: modify
+replace: olcAccess
+olcAccess: {0}to * by dn.base="gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth"
+  read by dn.base="cn=Manager,dc=ninjanet,dc=com" read by * none
+
+dn: olcDatabase={2}hdb,cn=config
+changetype: modify
+replace: olcSuffix
+olcSuffix: dc=ninjanet,dc=com
+
+dn: olcDatabase={2}hdb,cn=config
+changetype: modify
+replace: olcRootDN
+olcRootDN: cn=Manager,dc=ninjanet,dc=com
+
+dn: olcDatabase={2}hdb,cn=config
+changetype: modify
+add: olcRootPW
+olcRootPW: {SSHA}PASSWORD
+
+dn: olcDatabase={2}hdb,cn=config
+changetype: modify
+add: olcAccess
+olcAccess: {0}to attrs=userPassword,shadowLastChange by
+  dn="cn=Manager,dc=ninjanet,dc=com" write by anonymous auth by self write by * none
+olcAccess: {1}to dn.base="" by * read
+olcAccess: {2}to * by dn="cn=Manager,dc=ninjanet,dc=com" write by * read
+
+#Add it to the database 
+ldapmodify -Y EXTERNAL -H ldapi:/// -f ldapdomain.ldif
+
+#Add LDAP entries 
+baseldapdomain.ldif
+
+
+dn: dc=ninjanet,dc=com
+objectClass: top
+objectClass: dcObject
+objectclass: organization
+o: ninjanet com
+dc: ninjanet
+
+dn: cn=Manager,dc=ninjanet,dc=com
+objectClass: organizationalRole
+cn: Manager
+description: Directory Manager
+
+dn: ou=People,dc=ninjanet,dc=com
+objectClass: organizationalUnit
+ou: People
+
+dn: ou=Group,dc=ninjanet,dc=com
+objectClass: organizationalUnit
+ou: Group 
+
+#Add the LDAP entried 
+ldapadd -Y EXTERNAL -x -D cn=Manager,dc=ninjanet,dc=com -W -f baseldapdomain.ldif
+
+
+###Continue at step 12 from the techmint FAQ
+
+#Make LDAP entery for smohr based off of wopr 
+smohr@wopr ~$ id smohr 
+uid=1000(smohr) gid=1000(smohr) groups=1000(smohr),1002(media)
+
+#ldapgroup.ldif 
+dn: cn=Manager,ou=Group,dc=ninjanet,dc=com
+objectClass: top
+objectClass: posixGroup
+gidNumber: 1000
+
+#media group
+dn: cn=Manager,ou=Group,dc=ninjanet,dc=com
+objectClass: top
+objectClass: posixGroup
+gidNumber: 1002
+
+
+ldapadd -x -D cn=Manager,dc=ninjanet,dc=com -W -f ldapgroupsmohr.ldig
+
+[root@gunstar ldif]# slappasswd 
+New password: 
+Re-enter new password: 
+{SSHA}SSSSSSSSSSSSS
+
+#ldapuser.ldif
+dn: uid=smohr,ou=People,dc=ninjanet,dc=com
+objectClass: top
+objectClass: account
+objectClass: posixAccount
+objectClass: shadowAccount
+cn: smohr
+uid: smohr
+uidNumber: 1000
+gidNumber: 1000
+homeDirectory: /home/smohr
+userPassword: {SSHA}SSSSSSSSSSSs
+loginShell: /bin/bash
+gecos: smohr
+shadowLastChange: 0
+shadowMax: 0
+shadowWarning: 0
+
+#Load the configuration for the user in LDAP
+ldapadd -x -D cn=Manager,dc=ninjanet,dc=com -W -f   ldapuser.ldif
+
+##Search ldap
+ldapsearch -xW -D cn=Manager,dc=ninjanet,dc=com "uid=smohr"
+
+#Delete user
+ldapdelete -x -D cn=Manager,dc=ninjanet,dc=com -W  uid=smohr,ou=People,dc=ninjanet,dc=com
+ldapdelete -x -D cn=Manager,dc=ninjanet,dc=com -W  cn=smohr,ou=Group,dc=ninjanet,dc=com
+
+

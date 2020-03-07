@@ -1,0 +1,86 @@
+------------------
+
+ADD A Compute Node 
+
+------------------
+
+OS configuration
+
+Set the network interfaces eth0 eth1
+vi /etc/default/grub
+GRUB_CMDLINE_LINUX="crashkernel=auto net.ifnames=0 biosdevname=0 rhgb quiet"
+
+Regenerate grub
+grub2-mkconfig -o /boot/grub2/grub.cfg
+
+move network config files 
+[root@firefly network-scripts]# mv ifcfg-p2p1 ifcfg-eth0
+[root@firefly network-scripts]# mv ifcfg-p2p2 ifcfg-eth1
+
+Change ifcfg files 
+NAME=eth0
+DEVICE=eth0
+
+root@firefly /etc/sysconfig/network-scripts# cat /etc/sysconfig/network-scripts/ifcfg-eth1 
+DEVICE="eth1"
+HWADDR=00:e0:4c:67:9a:70
+BOOTPROTO="static"
+ONBOOT="yes"
+TYPE=Ethernet
+NETMASK=255.255.255.0
+IPADDR=172.168.1.2
+BROADCAST=72.168.1.255
+IPV4_FAILURE_FATAL=no
+IPV6INIT=no
+
+
+[root@reaver ~]# cat /etc/sysconfig/network-scripts/ifcfg-eth1 
+DEVICE="eth1"
+HWADDR=00:e0:4c:68:d6:55
+BOOTPROTO="static"
+ONBOOT="yes"
+TYPE=Ethernet
+NETMASK=255.255.255.0
+IPADDR=172.168.1.3
+BROADCAST=72.168.1.255
+IPV4_FAILURE_FATAL=no
+IPV6INIT=no
+
+-------------
+answer.cfg
+------------
+#Add node specific 
+CONFIG_COMPUTE_HOSTS=192.168.1.146,192.168.1.147
+CONFIG_NEUTRON_OVS_TUNNEL_IF=eth1
+CONFIG_NEUTRON_OVS_TUNNEL_SUBNETS= 172.168.1.0/24
+CONFIG_NEUTRON_OVS_BRIDGES_COMPUTE=br-ex
+
+#General answer config
+CONFIG_NTP_SERVERS=0.centos.pool.ntp.org,1.centos.pool.ntp.org,4.centos.pool.ntp.org,3.centos.pool.ntp.org
+CONFIG_CINDER_VOLUMES_SIZE=558G
+CONFIG_SWIFT_STORAGE_SIZE=372G
+CONFIG_SWIFT_STORAGES=/dev/swift-volumes/swift-lvs
+CONFIG_PROVISION_DEMO=n
+
+CONFIG_NEUTRON_OVS_BRIDGE_MAPPINGS=extnet:br-ex
+CONFIG_NEUTRON_ML2_MECHANISM_DRIVERS=openvswitch
+CONFIG_NEUTRON_L2_AGENT=openvswitch
+CONFIG_NEUTRON_OVS_BRIDGE_IFACES=br-ex:eth0
+CONFIG_NEUTRON_ML2_TYPE_DRIVERS=vxlan,flat
+CONFIG_NEUTRON_ML2_TENANT_NETWORK_TYPES=vxlan
+
+------
+iptables config 
+-------
+
+[root@firefly sysconfig]# grep 5672 iptables 
+-A INPUT -s 192.168.1.146/32 -p tcp -m multiport --dports 5671,5672 -m comment --comment "001 amqp incoming amqp_192.168.1.146" -j ACCEPT
+-A INPUT -s 192.168.1.147/32 -p tcp -m multiport --dports 5671,5672 -m comment --comment "001 amqp incoming amqp_192.168.1.147" -j ACCEPT
+
+
+[root@firefly sysconfig]# grep mari iptables
+-A INPUT -s 192.168.1.146/32 -p tcp -m multiport --dports 3306 -m comment --comment "001 mariadb incoming mariadb_192.168.1.146" -j ACCEPT
+-A INPUT -s 192.168.1.147/32 -p tcp -m multiport --dports 3306 -m comment --comment "001 mariadb incoming mariadb_192.168.1.147" -j ACCEPT
+
+
+

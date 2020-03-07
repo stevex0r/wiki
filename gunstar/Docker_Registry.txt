@@ -1,0 +1,35 @@
+#open port 5000 in firewalld
+
+
+#Install docker 
+
+yum install docker-distribution
+
+# Set up local registry from this how to
+https://computingforgeeks.com/install-and-configure-docker-registry-on-centos-7/
+
+# download a container 
+docker pull ubuntu:16.04
+
+#set up insecure registry 
+[root@gunstar docker]# cat /etc/docker/daemon.json 
+{
+ "insecure-registries" : ["gunstar:5000"]
+}
+
+#Pull ubuntu container 
+docker pull ubuntu:16.04
+
+#Tag 
+docker tag ubuntu:16.04 gunstar:5000/ubuntu:16.04
+
+#Push to local registry
+docker push gunstar:5000/ubuntu:16.04
+
+#Images stored in 
+[root@gunstar docker]# ls /var/lib/registry/docker/registry/v2/repositories
+ubuntu
+
+
+#Pull image from local registry
+docker pull gunstar:5000/ubuntu:16.04

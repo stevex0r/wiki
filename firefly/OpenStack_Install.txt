@@ -1,0 +1,203 @@
+Setup
+
+Dell Optiplex 9020
+CPU: Core i7 3.4Ghz
+RAM: 16GB
+HD: 256SSD 1TBHD
+Network: Dual port 1GB ethernet 
+----
+OS: Cent OS 7 minimal
+
+Partitioning 
+SWAP 30gb
+
+
+/ BOOT 2GB
+/root ROOT 208GB
+
+Hostname
+firefly
+
+Network
+Device: p2p1
+Static
+192.168.1.43
+255.255.255.0
+192.168.1.1
+DNS
+4.2.2.1
+4.2.2.2
+
+
+Device: p2p2
+Static
+172.168.2.2
+255.255.255.0
+172.168.2.3
+
+
+-----
+
+OS configuration 
+
+Set the network interfaces eth0 eth1
+vi /etc/default/grub
+GRUB_CMDLINE_LINUX="crashkernel=auto net.ifnames=0 biosdevname=0 rhgb quiet"
+
+Regenerate grub
+grub2-mkconfig -o /boot/grub2/grub.cfg
+
+move network config files 
+[root@firefly network-scripts]# mv ifcfg-p2p1 ifcfg-eth0
+[root@firefly network-scripts]# mv ifcfg-p2p2 ifcfg-eth1
+
+Change ifcfg files 
+NAME=eth0
+DEVICE=eth0
+
+Disable network manager 
+systemctl disable NetworkManager
+
+reboot
+
+-----------
+Ansible setup
+
+On firefly setup ansible user 
+
+[root@gunstar scripts]# cat ansible-user.sh 
+#!/bin/bash
+#Copy onto new host and execute to create ansible user 
+useradd -m -d /opt/ansible ansible
+echo -e 'ansible\tALL=(ALL)\tNOPASSWD:\tALL' > /etc/sudoers.d/ansible
+scp -rp root@192.168.1.44:/opt/ansible/.ssh /opt/ansible/
+chown ansible:ansible  -R /opt/ansible
+
+--------
+
+--------
+
+
+#Partition disk
+   10  parted -s -a optimal -- /dev/sdb mklabel gpt
+   11  parted -s -a optimal -- /dev/sdb mkpart primary 0% 60%
+   13  parted -s -a optimal -- /dev/sdb mkpart primary 60% 100%
+
+#Install pvcreate
+yum install lvm2
+
+pvcreate /dev/sdb1
+pvcreate /dev/sdb2
+vgcreate cinder-volumes /dev/sdb1
+vgcreate swift-volumes /dev/sdb2
+lvcreate -n swift-lvs -l 100%FREE swift-volumes
+mkfs.ext4 /dev/swift-volumes/swift-lvs
+
+root@firefly ~# lsblk 
+NAME                          MAJ:MIN RM   SIZE RO TYPE MOUNTPOINT
+sda                             8:0    0 238.5G  0 disk 
+├─sda1                          8:1    0   1.9G  0 part /boot
+├─sda2                          8:2    0 186.3G  0 part /
+└─sda3                          8:3    0  14.9G  0 part [SWAP]
+sdb                             8:16   0 931.5G  0 disk 
+├─sdb1                          8:17   0 558.9G  0 part 
+└─sdb2                          8:18   0 372.6G  0 part 
+  └─swift--volumes-swift--lvs 253:0    0 372.6G  0 lvm  
+sr0                            11:0    1  1024M  0 rom
+
+vgs
+
+
+---------
+PackStack Answer file 
+[root@gunstar files]# diff answers.cfg answers.cfg.OG 
+CONFIG_NTP_SERVERS=0.centos.pool.ntp.org,1.centos.pool.ntp.org,4.centos.pool.ntp.org,3.centos.pool.ntp.org
+CONFIG_CINDER_VOLUMES_SIZE=558G
+CONFIG_SWIFT_STORAGE_SIZE=372G
+CONFIG_SWIFT_STORAGES=/dev/swift-volumes/swift-lvs
+CONFIG_PROVISION_DEMO=n
+
+CONFIG_NEUTRON_OVS_BRIDGE_MAPPINGS=extnet:br-ex
+CONFIG_NEUTRON_ML2_MECHANISM_DRIVERS=openvswitch
+CONFIG_NEUTRON_L2_AGENT=openvswitch
+CONFIG_NEUTRON_OVS_BRIDGE_IFACES=br-ex:eth0
+CONFIG_NEUTRON_ML2_TYPE_DRIVERS=vxlan,flat
+CONFIG_NEUTRON_ML2_TENANT_NETWORK_TYPES=vxlan
+
+#Add node specific
+CONFIG_COMPUTE_HOSTS=192.168.1.146,192.168.1.147
+CONFIG_NEUTRON_OVS_TUNNEL_IF=eth1
+CONFIG_NEUTRON_OVS_TUNNEL_SUBNETS= 172.168.1.0/24
+CONFIG_NEUTRON_OVS_BRIDGES_COMPUTE=br-ex
+
+----------
+ansible-playbook  -i hosts.static site-playbooks/infrastructure/firefly.yml --key-file /opt/ansible/.ssh/id_rsa
+-------
+Install openstack
+packstack --answer-file=
+
+ **** Installation completed successfully ******
+
+Additional information:
+ * Parameter CONFIG_NEUTRON_L2_AGENT: You have chosen OVN Neutron backend. Note that this backend does not support the VPNaaS or FWaaS services. Geneve will be used as the encapsulation method for tenant networks
+ * File /root/keystonerc_admin has been created on OpenStack client host 192.168.1.146. To use the command line tools you need to source the file.
+ * To access the OpenStack Dashboard browse to http://192.168.1.146/dashboard .
+Please, find your login credentials stored in the keystonerc_admin in your home directory.
+ * The installation log file is available at: /var/tmp/packstack/20200213-120848-AQF096/openstack-setup.log
+ * The generated manifests are available at: /var/tmp/packstack/20200213-120848-AQF096/manifests
+---------------
+POSTINSTALL
+---------
+Set up networking - Post install
+-----------
+#Create an internal network
+openstack network create internal
+#Create a subnet on internal with an internal ip range in 10.10.1.*
+openstack subnet create internal --subnet-range 10.10.1.0/24 --dns-nameserver 8.8.8.8 --network internal
+
+#Create a public network
+openstack network create public --external --provider-network-type flat --provider-physical-network extnet
+#Create a subnet for floating ip's in the 192.168.1.* subnet
+openstack subnet create public --network public --dhcp --allocation-pool start=192.168.1.80,end=192.168.1.100 --dns-nameserver 8.8.8.8 --gateway 192.168.1.148 --subnet-range 192.168.1.0/24
+
+#Create a router
+openstack router create zerocool
+#Connect the internal network to the router
+openstack router add subnet zerocool internal
+#Connect the public network
+openstack router add subnet zerocool public
+#Set the gateway for the router to the public network
+openstack router set --external-gateway zerocool public
+
+----------
+Install Images
+---------
+
+#Cirros
+$ wget http://download.cirros-cloud.net/0.4.0/cirros-0.4.0-x86_64-disk.img
+$ openstack image create \
+    --container-format bare \
+    --disk-format qcow2 \
+    --file cirros-0.4.0-x86_64-disk.img \
+    Cirros-0.4.0-x86_64
+
+#Centos7
+$ wget http://cloud.centos.org/centos/7/images/CentOS-7-x86_64-GenericCloud.qcow2
+
+$ openstack image create \
+    --container-format bare \
+    --disk-format qcow2 \
+    --file CentOS-7-x86_64-GenericCloud.qcow2 \
+    CentOS-7-x86_64
+
+#Ubuntu 18.04
+$ wget http://cloud-images.ubuntu.com/bionic/current/bionic-server-cloudimg-amd64.img
+
+$ openstack image create \
+    --container-format bare \
+    --disk-format qcow2 \
+    --file bionic-server-cloudimg-amd64.img \
+    Ubuntu-18.04-x86_64
+
+
+

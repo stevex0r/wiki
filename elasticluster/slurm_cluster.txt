@@ -1,0 +1,2 @@
+sacctmgr add user smohr account=root
+sacctmgr add user sam account=root

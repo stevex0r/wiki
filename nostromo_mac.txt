@@ -1,0 +1,12 @@
+nostromo
+enp1s0u2 8c:ae:4c:f4:b1:c0
+eth0 dc:a6:32:4f:1c:fd
+
+xeno0
+eth0 dc:a6:32:4f:1c:ae
+
+xeno1
+eth0 dc:a6:32:4f:0d:6d
+
+xeno2 
+eth0 dc:a6:32:4e:c7:83 

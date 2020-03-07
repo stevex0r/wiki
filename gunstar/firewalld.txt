@@ -1,0 +1,29 @@
+#Make a zone for Openstack Ip addresses and services 
+firewall-cmd --new-zone=openstack --permanent
+firewall-cmd --reload 
+firewall-cmd --zone=openstack --permanent --add-source=193.168.1.67
+firewall-cmd --zone=openstack --permanent --add-source=193.168.1.68
+firewall-cmd --zone=openstack --permanent --add-source=193.168.1.69
+firewall-cmd --zone=openstack --permanent --add-source=193.168.1.70
+firewall-cmd --zone=openstack --permanent --add-source=193.168.1.71
+firewall-cmd --zone=openstack --permanent --add-source=193.168.1.72
+firewall-cmd --zone=openstack --permanent --add-source=193.168.1.73
+firewall-cmd --zone=openstack --permanent --add-source=193.168.1.74
+firewall-cmd --zone=openstack --permanent --add-source=193.168.1.75
+firewall-cmd --zone=openstack --permanent --add-source=193.168.1.76
+firewall-cmd --zone=openstack --permanent --add-source=193.168.1.77
+firewall-cmd --zone=openstack --permanent --add-source=193.168.1.78
+firewall-cmd --zone=openstack --permanent --add-source=193.168.1.79
+firewall-cmd --zone=openstack --permanent --add-source=193.168.1.80
+firewall-cmd --zone=openstack --permanent --add-source=193.168.1.81
+firewall-cmd --zone=openstack --permanent --add-source=193.168.1.82
+firewall-cmd --zone=openstack --permanent --add-source=193.168.1.83
+firewall-cmd --zone=openstack --permanent --add-source=193.168.1.84
+firewall-cmd --zone=openstack --permanent --add-source=193.168.1.85
+firewall-cmd --zone=openstack --permanent --add-source=193.168.1.86
+firewall-cmd --zone=openstack --permanent --add-source=193.168.1.87
+firewall-cmd --zone=openstack --add-port=5000/tcp --permanent
+firewall-cmd --zone=openstack --add-service=mysql --permanent
+
+#Check status 
+firewall-cmd --zone=openstack --list-all

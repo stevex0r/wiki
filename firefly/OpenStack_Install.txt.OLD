@@ -1,0 +1,346 @@
+Setup
+
+Dell Optiplex 9020
+CPU: Core i7 3.4Ghz
+RAM: 16GB
+HD: 256SSD 1TBHD
+Network: Dual port 1GB ethernet 
+----
+OS: Cent OS 7 minimal
+
+Partitioning 
+SWAP 30gb
+
+
+/ BOOT 2GB
+/root ROOT 208GB
+
+Hostname
+firefly
+
+Network
+Device: p2p1
+Static
+192.168.1.43
+255.255.255.0
+192.168.1.1
+DNS
+4.2.2.1
+4.2.2.2
+
+
+Device: p2p2
+Static
+172.168.2.2
+255.255.255.0
+172.168.2.3
+
+
+-----
+
+OS configuration 
+
+Set the network interfaces eth0 eth1
+vi /etc/default/grub
+GRUB_CMDLINE_LINUX="crashkernel=auto net.ifnames=0 biosdevname=0 rhgb quiet"
+
+Regenerate grub
+grub2-mkconfig -o /boot/grub2/grub.cfg
+
+move network config files 
+[root@firefly network-scripts]# mv ifcfg-p2p1 ifcfg-eth0
+[root@firefly network-scripts]# mv ifcfg-p2p2 ifcfg-eth1
+
+Change ifcfg files 
+NAME=eth0
+DEVICE=eth0
+
+Disable network manager 
+systemctl disable NetworkManager
+
+reboot
+
+-----------
+Ansible setup
+
+On firefly setup ansible user 
+
+[root@gunstar scripts]# cat ansible-user.sh 
+#!/bin/bash
+#Copy onto new host and execute to create ansible user 
+useradd -m -d /opt/ansible ansible
+echo -e 'ansible\tALL=(ALL)\tNOPASSWD:\tALL' > /etc/sudoers.d/ansible
+scp -rp root@192.168.1.44:/opt/ansible/.ssh /opt/ansible/
+chown ansible:ansible  -R /opt/ansible
+
+--------
+
+--------
+
+
+#Partition disk
+   10  parted -s -a optimal -- /dev/sdb mklabel gpt
+   11  parted -s -a optimal -- /dev/sdb mkpart primary 0% 60%
+   13  parted -s -a optimal -- /dev/sdb mkpart primary 60% 100%
+
+#Install pvcreate
+yum install lvm2
+
+pvcreate /dev/sdb1
+pvcreate /dev/sdb2
+vgcreate cinder-volumes /dev/sdb1
+vgcreate swift-volumes /dev/sdb2
+lvcreate -n swift-lvs -l 100%FREE swift-volumes
+mkfs.ext4 /dev/swift-volumes/swift-lvs
+
+[root@firefly ~]# lsblk 
+NAME                          MAJ:MIN RM   SIZE RO TYPE MOUNTPOINT
+sda                             8:0    0 238.5G  0 disk 
+├─sda1                          8:1    0  1011M  0 part /boot
+├─sda2                          8:2    0 204.9G  0 part /
+└─sda3                          8:3    0  32.6G  0 part [SWAP]
+sdb                             8:16   0 931.5G  0 disk 
+├─sdb1                          8:17   0 465.8G  0 part 
+└─sdb2                          8:18   0 465.8G  0 part 
+  └─swift--volumes-swift--lvs 253:0    0 465.8G  0 lvm  
+sdc                             8:32   1   1.9G  0 disk 
+y
+├─sdc1                          8:33   1   918M  0 part 
+└─sdc2                          8:34   1   8.5M  0 part 
+
+sr0                            11:0    1  1024M  0 rom  
+
+
+vgs
+
+
+---------
+PackStack Answer file 
+[root@gunstar files]# diff answers.cfg answers.cfg.OG 
+79c79
+< CONFIG_NTP_SERVERS=0.centos.pool.ntp.org,1.centos.pool.ntp.org,4.centos.pool.ntp.org,3.centos.pool.ntp.org 
+---
+> CONFIG_NTP_SERVERS=
+557c557
+< CONFIG_CINDER_VOLUMES_SIZE=558G
+---
+> CONFIG_CINDER_VOLUMES_SIZE=20G
+795c795
+< CONFIG_NEUTRON_ML2_TYPE_DRIVERS=vxlan,flat
+---
+> CONFIG_NEUTRON_ML2_TYPE_DRIVERS=geneve,flat
+869c869
+< CONFIG_NEUTRON_OVS_BRIDGE_IFACES=br-ex:eth0
+---
+> CONFIG_NEUTRON_OVS_BRIDGE_IFACES=
+1133c1133
+< CONFIG_SWIFT_STORAGES=/dev/swift-volumes/swift-lvs
+---
+> CONFIG_SWIFT_STORAGES=
+1152c1152
+< CONFIG_SWIFT_STORAGE_SIZE=372G
+---
+> CONFIG_SWIFT_STORAGE_SIZE=2G
+1181c1181
+< CONFIG_PROVISION_DEMO=n
+---
+> CONFIG_PROVISION_DEMO=y
+----------
+ansible-playbook  -i hosts.static site-playbooks/infrastructure/firefly.yml --key-file /opt/ansible/.ssh/id_rsa
+-------
+Install openstack
+packstack --answer-file=
+
+ **** Installation completed successfully ******
+
+Additional information:
+ * Parameter CONFIG_NEUTRON_L2_AGENT: You have chosen OVN Neutron backend. Note that this backend does not support the VPNaaS or FWaaS services. Geneve will be used as the encapsulation method for tenant networks
+ * File /root/keystonerc_admin has been created on OpenStack client host 192.168.1.146. To use the command line tools you need to source the file.
+ * To access the OpenStack Dashboard browse to http://192.168.1.146/dashboard .
+Please, find your login credentials stored in the keystonerc_admin in your home directory.
+ * The installation log file is available at: /var/tmp/packstack/20200213-120848-AQF096/openstack-setup.log
+ * The generated manifests are available at: /var/tmp/packstack/20200213-120848-AQF096/manifests
+---------
+
+Network Config 
+
+cat /etc/sysconfig/network-scripts/ifcfg-br-ex
+
+DEVICE=br-ex
+DEVICETYPE=ovs
+TYPE=OVSBridge
+BOOTPROTO=static
+IPADDR=192.168.1.146 # Old eth0 IP since we want the network restart to not 
+                       # kill the connection, otherwise pick something outside your dhcp range
+NETMASK=255.255.255.0  # your netmask
+GATEWAY=192.168.1.1  # your gateway
+DNS1=192.168.1.1     # your nameserver
+DNS2=1.1.1.1
+ONBOOT=yes
+
+
+/etc/sysconfig/network-scripts/ifcfg-eth0
+
+DEVICE=eth0
+TYPE=OVSPort
+DEVICETYPE=ovs
+OVS_BRIDGE=br-ex
+ONBOOT=yes
+
+--------
+
+reboot
+
+
+--------
+
+
+Now, create the external network with Neutron.
+. keystonerc_admin
+neutron net-create external_network --provider:network_type flat --provider:physical_network extnet  --router:external
+
+#Setup up network 
+neutron subnet-create --name public_subnet --enable_dhcp=False --allocation-pool=start=192.168.1.90,end=192.168.1.99 --gateway=192.168.1.1 external_network 192.168.1.0/24
+
+Get a cirros image, not provisioned without demo provisioning:
+
+curl http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img | glance \
+         image-create --name='cirros image' --visibility=public --container-format=bare --disk-format=qcow2
+
+That's all you need to do from admin perspective to allow your users to connect their private networks to the outside world. Now let's switch to the user.
+
+Since you haven't created a user yet:
+
+openstack project create --enable internal
+openstack user create --project internal --password fugg --email stevex0r@gmail.com --enable internal
+
+Now, let's switch to the newly created user:
+
+cat /root/keystone_internal
+
+export OS_USERNAME=internal
+export OS_TENANT_NAME=internal
+export OS_PASSWORD=fugg
+
+Then create a router and set its gateway using the external network created by the admin in one of previous steps:
+
+neutron router-create router1
+neutron router-gateway-set router1 external_network
+
+Now create a private network and a subnet in it, since demo provisioning has been disabled:
+
+neutron net-create private_network
+neutron subnet-create --name private_subnet private_network 192.168.100.0/24
+
+Finally, connect your new private network to the public network through the router, which will provide floating IP addresses.
+
+neutron router-interface-add router1 private_subnet
+vg			
+
+------------------
+
+ADD A Compute Node 
+
+------------------
+
+OS configuration
+
+Set the network interfaces eth0 eth1
+vi /etc/default/grub
+GRUB_CMDLINE_LINUX="crashkernel=auto net.ifnames=0 biosdevname=0 rhgb quiet"
+
+Regenerate grub
+grub2-mkconfig -o /boot/grub2/grub.cfg
+
+network config files
+[root@reaver network-scripts]# cat ifcfg-eth0
+TYPE=Ethernet
+PROXY_METHOD=none
+BROWSER_ONLY=no
+BOOTPROTO=dhcp
+DEFROUTE=yes
+IPV4_FAILURE_FATAL=no
+IPV6INIT=yes
+IPV6_AUTOCONF=yes
+IPV6_DEFROUTE=yes
+IPV6_FAILURE_FATAL=no
+IPV6_ADDR_GEN_MODE=stable-privacy
+NAME=eth0
+UUID=4f0eb339-1ee2-4ca6-a588-64e1fa62efbd
+DEVICE=eth0
+ONBOOT=yes
+
+
+[root@reaver network-scripts]# cat ifcfg-eth1
+DEVICE="eth1"
+HWADDR=00:e0:4c:68:d6:55 
+BOOTPROTO="static"
+ONBOOT="yes"
+TYPE=Ethernet
+NETMASK=255.255.255.0
+IPADDR=172.168.1.3
+BROADCAST=72.168.1.255
+IPV4_FAILURE_FATAL=no
+IPV6INIT=no
+
+
+Disable network manager
+systemctl disable NetworkManager
+
+turn off selinux
+[root@reaver network-scripts]# cat  /etc/selinux/config  | grep SELINUX=pe
+SELINUX=permissive
+
+
+---------------
+Set up answer file 
+< CONFIG_NTP_SERVERS=0.centos.pool.ntp.org,1.centos.pool.ntp.org,4.centos.pool.ntp.org,3.centos.pool.ntp.org
+---
+> CONFIG_NTP_SERVERS=
+< CONFIG_COMPUTE_HOSTS=192.168.1.146,192.168.1.147
+---
+> CONFIG_COMPUTE_HOSTS=192.168.1.146
+---
+< CONFIG_CINDER_VOLUMES_SIZE=465G
+---
+> CONFIG_CINDER_VOLUMES_SIZE=20G
+< CONFIG_NEUTRON_ML2_TYPE_DRIVERS=vxlan,flat
+---
+> CONFIG_NEUTRON_ML2_TYPE_DRIVERS=geneve,flat
+< CONFIG_NEUTRON_OVN_BRIDGE_IFACES=br-ex:eth0
+---
+> CONFIG_NEUTRON_OVN_BRIDGE_IFACES=
+< CONFIG_NEUTRON_OVN_BRIDGES_COMPUTE=br-ex
+---
+> CONFIG_NEUTRON_OVN_BRIDGES_COMPUTE=
+< CONFIG_NEUTRON_OVN_TUNNEL_IF=eth1
+---
+> CONFIG_NEUTRON_OVN_TUNNEL_IF=
+< CONFIG_NEUTRON_OVN_TUNNEL_SUBNETS=172.168.1.0/24
+---
+> CONFIG_NEUTRON_OVN_TUNNEL_SUBNETS=
+< CONFIG_SWIFT_STORAGES=/dev/swift-volumes/swift-lvs
+---
+> CONFIG_SWIFT_STORAGES=
+< CONFIG_SWIFT_STORAGE_SIZE=465G
+---
+> CONFIG_SWIFT_STORAGE_SIZE=2G
+< CONFIG_PROVISION_DEMO=n
+---
+> CONFIG_PROVISION_DEMO=y
+
+
+iptables rules 
+
+[root@firefly sysconfig]# grep 5672 iptables
+-A INPUT -s 172.168.1.2/32 -p tcp -m multiport --dports 5671,5672 -m comment --comment "001 amqp incoming amqp_172.168.1.2" -j ACCEPT
+-A INPUT -s 172.168.1.3/32 -p tcp -m multiport --dports 5671,5672 -m comment --comment "001 amqp incoming amqp_172.168.1.3" -j ACCEPT
+-A INPUT -s 192.168.1.146/32 -p tcp -m multiport --dports 5671,5672 -m comment --comment "001 amqp incoming amqp_192.168.1.146" -j ACCEPT
+-A INPUT -s 192.168.1.147/32 -p tcp -m multiport --dports 5671,5672 -m comment --comment "001 amqp incoming amqp_192.168.1.147" -j ACCEPT
+
+
+[root@firefly sysconfig]# grep mari iptables
+-A INPUT -s 172.168.1.2/32 -p tcp -m multiport --dports 3306 -m comment --comment "001 mariadb incoming mariadb_172.168.1.2" -j ACCEPT
+-A INPUT -s 172.168.1.3/32 -p tcp -m multiport --dports 3306 -m comment --comment "001 mariadb incoming mariadb_172.168.1.3" -j ACCEPT
+-A INPUT -s 192.168.1.146/32 -p tcp -m multiport --dports 3306 -m comment --comment "001 mariadb incoming mariadb_192.168.1.146" -j ACCEPT
+-A INPUT -s 192.168.1.147/32 -p tcp -m multiport --dports 3306 -m comment --comment "001 mariadb incoming mariadb_192.168.1.147" -j ACCEPT
